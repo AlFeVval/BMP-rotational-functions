@@ -4,6 +4,7 @@
 #include <math.h>
 #include <malloc.h>
 #include <string.h>
+#include "omp.h"
 
 // Standard values located at the header of an BMP file
 #define MAGIC_VALUE    0X4D42 
@@ -272,10 +273,8 @@ void BMP_blur(char* open, unsigned int size){
   unsigned int width = img->width * 3;
 
   int M = (size-1)/2;
-/*   char** out_buffer = malloc(sizeof(char*)*(height));
-  for(int i = 0; i < height; i++){
-    out_buffer[i] = malloc(sizeof(char)*(width));
-  } */
+
+  const double startTime = omp_get_wtime();
 
 	for(int x=M;x<height-M;x++)
 	{
@@ -299,15 +298,28 @@ void BMP_blur(char* open, unsigned int size){
     }
   }
 
-  char filename[] = "Blur0X.bmp";
-  if(size < 10) filename[5]=size+'0';
+  char* name;
+  if(strcmp(open,"HorizontalRot.bmp") == 0){
+    char filename[] = "Rblur0X.bmp";
+    if(size < 10) filename[6]=size+'0';
+    else{
+      filename[5]= (size/10)+'0';
+      filename[6]= (size%10)+'0';
+    }
+    name = filename; 
+  }
   else{
-    filename[4]= (size/10)+'0';
-    filename[5]= (size%10)+'0';
-  } 
-  // printf("%s",filename);
+    char filename[] = "Blur0X.bmp";
+    if(size < 10) filename[5]=size+'0';
+    else{
+      filename[4]= (size/10)+'0';
+      filename[5]= (size%10)+'0';
+    }
+    name = filename; 
+  }
+
   //Guardar la imagen
-  if (BMP_save(img, filename) == 0)
+  if (BMP_save(img, name) == 0)
    {
      printf("Output file invalid!\n");
      BMP_destroy(img);
@@ -320,7 +332,8 @@ void BMP_blur(char* open, unsigned int size){
   free(kerSn);
   free(out_buffer);
   // free(buffer);
-
+  const double endTime = omp_get_wtime();
+  printf("%s teminado en un tiempo total de (%lf)\n",name, (endTime - startTime));
 }
 
 /*Debugging functions*/
@@ -335,6 +348,7 @@ void printArr(float ** array, int size){
 }
   
 int main(){
+  BMP_blur("GrayScale.bmp",3);
   BMP_blur("GrayScale.bmp",5);
   BMP_blur("GrayScale.bmp",7);
   BMP_blur("GrayScale.bmp",9);
@@ -345,6 +359,17 @@ int main(){
   BMP_blur("GrayScale.bmp",19);
   BMP_blur("GrayScale.bmp",21);
   BMP_blur("GrayScale.bmp",23);
+  BMP_blur("HorizontalRot.bmp",23);
+  BMP_blur("HorizontalRot.bmp",21);
+  BMP_blur("HorizontalRot.bmp",19);
+  BMP_blur("HorizontalRot.bmp",17);
+  BMP_blur("HorizontalRot.bmp",15);
+  BMP_blur("HorizontalRot.bmp",13);
+  BMP_blur("HorizontalRot.bmp",11);
+  BMP_blur("HorizontalRot.bmp",9);
+  BMP_blur("HorizontalRot.bmp",7);
+  BMP_blur("HorizontalRot.bmp",5);
+  BMP_blur("HorizontalRot.bmp",3);
   // BMP_gray(BMP_open("rata.bmp"));
   // BMP_Image * img = BMP_open("rata.bmp");
   // specs(&(img->header));
