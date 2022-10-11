@@ -14,7 +14,7 @@
 #define COMPRESSION    0
 #define BITS_PER_BYTE  8
 //OpenMP var
-#define NUM_THREADS 20
+#define NUM_THREADS 200
 
 #pragma pack(1)
 
@@ -301,7 +301,7 @@ void BMP_blur(char* open, unsigned int size){
  
   #pragma omp parallel
 	{
-    #pragma omp for schedule(guided, NUM_THREADS)
+    #pragma omp for schedule(dynamic, NUM_THREADS) collapse(1)
     for(int x=M;x<height-M;x++)
 	  {
       for(int y=M;y<width-M;y++)
@@ -424,7 +424,7 @@ int main(){
     #pragma omp section
     BMP_blur("HorizontalRot.bmp",3);
   }
-  // BMP_gray(BMP_open("rata.bmp"));
+  // BMP_gray(BMP_open("opossum.bmp"));
   // BMP_horFlip(BMP_open("GrayScale.bmp"));
   // BMP_Image * img = BMP_open("rata.bmp");
   // specs(&(img->header));

@@ -370,8 +370,8 @@ int main(){
   BMP_blur("HorizontalRot.bmp",7);
   BMP_blur("HorizontalRot.bmp",5);
   BMP_blur("HorizontalRot.bmp",3);
-  // BMP_gray(BMP_open("rata.bmp"));
-  // BMP_Image * img = BMP_open("rata.bmp");
+  // BMP_gray(BMP_open("opossum.bmp"));
+  // BMP_Image * img = BMP_open("opossum.bmp");
   // specs(&(img->header));
   return 0;
 }
