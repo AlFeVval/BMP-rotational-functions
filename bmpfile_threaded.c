@@ -4,6 +4,7 @@
 #include <math.h>
 #include <malloc.h>
 #include "omp.h"
+#include <string.h>
 
 // Standard values located at the header of an BMP file
 #define MAGIC_VALUE    0X4D42 
@@ -248,21 +249,184 @@ void BMP_verFlip(BMP_Image *img){
 }
 
 /*Debugging functions*/
-void printArr(unsigned char * array, unsigned int size, unsigned int EPR, unsigned int BPP){
-  int i, k, h;
-  // printf("\nRow = %i",size/(BPP*EPR));
-  // printf("\nCol = %i",BPP*EPR);
-  for(i = 0, h = -1, k=-1; i < size; i++){ 
-    if(i%(size/(EPR*BPP)) == 0) k++; //Get column(w) index
-    if(i%(EPR*BPP) == 0) h++; //Get row(h) index
+float ** kernel(unsigned int size){
+  unsigned int height = size;
+  unsigned int width = size*3; 
+  float ** matrix  = malloc(sizeof(float*)*height);
+  for(int i = 0; i < height; i++){
+    matrix[i] = malloc(sizeof(float)*width);
   }
-  printf("%i x %i",k,h);
+  
+  for(int i = 0; i<height; i++){
+    for(int j = 0; j<width; j++){
+      matrix[i][j] = (float)1.0/(size*size);
+    }
+  }
+  return matrix;
 }
 
+char ** pixelMat(BMP_Image * img){
+  unsigned int height = img->height;
+  unsigned int width = img->width*3;
+  char** mat = malloc(sizeof(char*) * (height));
+  for(int i = 0; i < height; i++){
+    mat[i] = malloc(sizeof(char)*(width));
+  }
+  
+  #pragma omp parallel
+  {
+    #pragma omp for schedule(dynamic, NUM_THREADS) collapse(2)
+    for(int i=0; i < height; i++){
+      for(int j=0; j< width; j++){
+        mat[i][j] = img->pixel[i*width+j];
+      }
+    }
+  }
+
+  return mat;
+}
+
+void BMP_blur(char* open, unsigned int size){
+  BMP_Image * img = BMP_open(open);
+  char** out_buffer = pixelMat(img);
+  float** kerSn = kernel(size);
+
+  unsigned int height = img->height;
+  unsigned int width = img->width * 3;
+
+  int M = (size-1)/2;
+
+  omp_set_num_threads(NUM_THREADS);
+  const double startTime = omp_get_wtime();
+ 
+  #pragma omp parallel
+	{
+    #pragma omp for schedule(dynamic, NUM_THREADS) collapse(1)
+    for(int x=M;x<height-M;x++)
+	  {
+      for(int y=M;y<width-M;y++)
+      {
+        float sum= 0.0;
+        for(int i=-M;i<=M;++i)									
+        {
+          for(int j=-M;j<=M;++j)
+          {
+            sum+=(float)kerSn[i+M][j+M]*img->pixel[(x+i)*width+(y+j)];	//matrix multiplication with kernel
+          }
+        }
+        out_buffer[x][y]=(char)sum;
+      }
+	  }
+
+    #pragma omp for schedule(dynamic, NUM_THREADS)
+    for(int i = 1; i<height-1; i++){
+      for(int j = 1; j<width-1; j++){
+        img->pixel[i*width+j] = out_buffer[i][j];
+      }
+    }
+  }
+  char* name;
+  if(strcmp(open,"HorizontalRot.bmp") == 0){
+    char filename[] = "Rblur0X.bmp";
+    if(size < 10) filename[6]=size+'0';
+    else{
+      filename[5]= (size/10)+'0';
+      filename[6]= (size%10)+'0';
+    }
+    name = filename; 
+  }
+  else{
+    char filename[] = "Blur0X.bmp";
+    if(size < 10) filename[5]=size+'0';
+    else{
+      filename[4]= (size/10)+'0';
+      filename[5]= (size%10)+'0';
+    }
+    name = filename; 
+  }
+
+  //Guardar la imagen
+  if (BMP_save(img, name) == 0)
+   {
+     printf("Output file invalid!\n");
+     BMP_destroy(img);
+     free(kerSn);
+     free(out_buffer);
+    //  free(buffer);
+  }
+  // Destroy the BMP image
+  BMP_destroy(img);
+  free(kerSn);
+  free(out_buffer);
+  const double endTime = omp_get_wtime();
+  printf("%s teminado en un tiempo total de (%lf)\n",name, (endTime - startTime));
+}
+
+/*Debugging functions*/
+void printArr(float ** array, int size){
+  for(int i = 0; i < size; i++){
+    for(int j = 0; j< size*3; j++){
+      if((j+1)%3 == 0) printf("%f\t", array[i][j]);
+      else printf("%f,", array[i][j]);
+    }
+    printf("\n");
+  }
+}
+  
 int main(){
-  BMP_gray(BMP_open("mc.bmp"));
-  // BMP_gray(BMP_open("hollow.bmp"));
-  BMP_horFlip(BMP_open("GrayScale.bmp"));
-  BMP_verFlip(BMP_open("GrayScale.bmp"));
+  omp_set_num_threads(NUM_THREADS);
+  const double startTime = omp_get_wtime();
+
+  #pragma omp sections
+  {
+    #pragma omp section
+    BMP_blur("GrayScale.bmp",3);
+    #pragma omp section
+    BMP_blur("GrayScale.bmp",5);
+    #pragma omp section
+    BMP_blur("GrayScale.bmp",7);
+    #pragma omp section
+    BMP_blur("GrayScale.bmp",9);
+    #pragma omp section
+    BMP_blur("GrayScale.bmp",11);
+    #pragma omp section
+    BMP_blur("GrayScale.bmp",13);
+    #pragma omp section
+    BMP_blur("GrayScale.bmp",15);
+    #pragma omp section
+    BMP_blur("GrayScale.bmp",17);
+    #pragma omp section
+    BMP_blur("GrayScale.bmp",19);
+    #pragma omp section
+    BMP_blur("GrayScale.bmp",21);
+    #pragma omp section
+    BMP_blur("GrayScale.bmp",23);
+    #pragma omp section
+    BMP_blur("HorizontalRot.bmp",23);
+    #pragma omp section
+    BMP_blur("HorizontalRot.bmp",21);
+    #pragma omp section
+    BMP_blur("HorizontalRot.bmp",19);
+    #pragma omp section
+    BMP_blur("HorizontalRot.bmp",17);
+    #pragma omp section
+    BMP_blur("HorizontalRot.bmp",15);
+    #pragma omp section
+    BMP_blur("HorizontalRot.bmp",13);
+    #pragma omp section
+    BMP_blur("HorizontalRot.bmp",11);
+    #pragma omp section
+    BMP_blur("HorizontalRot.bmp",9);
+    #pragma omp section
+    BMP_blur("HorizontalRot.bmp",7);
+    #pragma omp section
+    BMP_blur("HorizontalRot.bmp",5);
+    #pragma omp section
+    BMP_blur("HorizontalRot.bmp",3);
+  }
+  // BMP_gray(BMP_open("opossum.bmp"));
+  // BMP_horFlip(BMP_open("GrayScale.bmp"));
+  // BMP_Image * img = BMP_open("rata.bmp");
+  // specs(&(img->header));
   return 0;
 }

@@ -3,6 +3,8 @@
 #include <stdint.h>
 #include <math.h>
 #include <malloc.h>
+#include <string.h>
+#include "omp.h"
 
 // Standard values located at the header of an BMP file
 #define MAGIC_VALUE    0X4D42 
@@ -17,12 +19,12 @@
 /*Section used to declare structures*/
 typedef struct{
   uint16_t type;
-  uint32_t size;
+  uint32_t size; 
   uint16_t reserved1;
   uint16_t reserved2;
-  uint32_t offset;
+  uint32_t offset; 
   uint32_t header_size;
-  uint32_t width;
+  uint32_t width; 
   uint32_t height;
   uint16_t planes;
   uint16_t bits;
@@ -90,7 +92,7 @@ BMP_Image* BMP_open(const char *filename){
   if(checkHeader(&(img -> header)) == 0) {printf("Header fuera del estandar\n"); return cleanUp(fptr,img);}
   img -> pixel_size      = (img -> header).size - sizeof(BMP_Header);
   img -> width           = (img -> header).width;
-  img -> height          = (img -> header).height;
+  img -> height          = abs((img -> header).height);
   img -> bytes_per_pixel = (img -> header).bits/BITS_PER_BYTE;
   img -> pixel = malloc(sizeof(unsigned char) * (img -> pixel_size));
   if((img -> pixel) == NULL){printf("Imagen vacia\n"); return cleanUp(fptr,img);}
@@ -116,11 +118,22 @@ void BMP_destroy(BMP_Image *img){
   free (img);
 }
 
-void specs(BMP_Image* img){
-  printf("Image width: %i\n", img->width);
-  printf("Image height: %i\n", abs(img->height));
-  printf("Image BPP: %i\n",  img->bytes_per_pixel);
-  printf("Image size: %i\n",  img->pixel_size);
+void specs(BMP_Header* header){
+  printf("Image type: %i\n", header->type);
+  printf("Image size: %i\n", header->size);
+  printf("Image offset: %i\n", header->offset);
+  printf("Image header_size: %i\n", header->header_size);
+  printf("Image width: %i\n",  header->width);
+  printf("Image height: %i\n",  header->height);
+  printf("Image planes: %i\n", header->planes);
+  printf("Image bits: %i\n", header->bits);
+  printf("Image xres: %i\n", header->xresolution);
+  printf("Image yres: %i\n", header->yresolution);
+ /*  printf("Image res1: %i\n",  header->reserved1);
+  printf("Image res2: %i\n", header->reserved2);
+  printf("Image compression: %i\n", header->compression);
+  printf("Image imagesize: %i\n", header->imagesize);
+  printf("Image importantcolors: %i\n", header->importantcolours ); */
 }
 
 static int  RGB2Gray(unsigned char red, unsigned char green, unsigned char blue){
@@ -132,7 +145,7 @@ static int  RGB2Gray(unsigned char red, unsigned char green, unsigned char blue)
 
 void BMP_gray(BMP_Image *img)
 {
-  specs(img);
+  // specs(img);
   for (int pxl = 0; pxl < (img -> pixel_size); pxl += 3)
     {
       unsigned char gray = RGB2Gray(img -> pixel[pxl + 2],img -> pixel[pxl + 1],img -> pixel[pxl]);
@@ -152,7 +165,7 @@ void BMP_gray(BMP_Image *img)
 void BMP_horFlip(BMP_Image *img){
   // printf("Creare la matriz de pixeles\n");
   unsigned char * output = (unsigned char *) malloc(img->pixel_size * sizeof(unsigned char));//Allocating memory for matrix
-  unsigned int r = abs(img->height);
+  unsigned int r = img->height;
   unsigned int c = img->width*3;
   // printf("(%ix%i),",r,c);
   //Modificar el array
@@ -186,7 +199,7 @@ void BMP_horFlip(BMP_Image *img){
 void BMP_verFlip(BMP_Image *img){
   // printf("Creare la matriz de pixeles\n");
   unsigned char * output = (unsigned char *) malloc(img->pixel_size * sizeof(unsigned char));//Allocating memory for matrix
-  int r = abs(img->height);
+  int r = img->height;
   int c = img->width*3;
   // printf("(%ix%i),",r,c);
   //Modificar el array
@@ -217,22 +230,148 @@ void BMP_verFlip(BMP_Image *img){
   free(output);
 }
 
-/*Debugging functions*/
-void printArr(unsigned char * array, unsigned int size, unsigned int EPR, unsigned int BPP){
-  int i, k, h;
-  // printf("\nRow = %i",size/(BPP*EPR));
-  // printf("\nCol = %i",BPP*EPR);
-  for(i = 0, h = -1, k=-1; i < size; i++){ 
-    if(i%(size/(EPR*BPP)) == 0) k++; //Get column(w) index
-    if(i%(EPR*BPP) == 0) h++; //Get row(h) index
+float ** kernel(unsigned int size){
+  unsigned int height = size;
+  unsigned int width = size*3; 
+  float ** matrix  = malloc(sizeof(float*)*height);
+  for(int i = 0; i < height; i++){
+    matrix[i] = malloc(sizeof(float)*width);
   }
-  printf("%i x %i",k,h);
+  
+  for(int i = 0; i<height; i++){
+    for(int j = 0; j<width; j++){
+      matrix[i][j] = (float)1.0/(size*size);
+    }
+  }
+  return matrix;
 }
 
+char ** pixelMat(BMP_Image * img){
+  unsigned int height = img->height;
+  unsigned int width = img->width*3;
+  char** mat = malloc(sizeof(char*) * (height));
+  for(int i = 0; i < height; i++){
+    mat[i] = malloc(sizeof(char)*(width));
+  }
+  
+  for(int i=0; i < height; i++){
+    for(int j=0; j< width; j++){
+      mat[i][j] = img->pixel[i*width+j];
+    }
+  }
+
+  return mat;
+}
+
+void BMP_blur(char* open, unsigned int size){
+  unsigned int pad = (size - 1)/2;
+  BMP_Image * img = BMP_open(open);
+  char** out_buffer = pixelMat(img);
+  float** kerSn = kernel(size);
+
+  unsigned int height = img->height;
+  unsigned int width = img->width * 3;
+
+  int M = (size-1)/2;
+
+  const double startTime = omp_get_wtime();
+
+	for(int x=M;x<height-M;x++)
+	{
+		for(int y=M;y<width-M;y++)
+		{
+			float sum= 0.0;
+			for(int i=-M;i<=M;++i)									
+			{
+				for(int j=-M;j<=M;++j)
+				{
+					sum+=(float)kerSn[i+M][j+M]*img->pixel[(x+i)*width+(y+j)];	//matrix multiplication with kernel
+				}
+			}
+			out_buffer[x][y]=(char)sum;
+		}
+	}
+ 
+  for(int i = 1; i<height-1; i++){
+    for(int j = 1; j<width-1; j++){
+      img->pixel[i*width+j] = out_buffer[i][j];
+    }
+  }
+
+  char* name;
+  if(strcmp(open,"HorizontalRot.bmp") == 0){
+    char filename[] = "Rblur0X.bmp";
+    if(size < 10) filename[6]=size+'0';
+    else{
+      filename[5]= (size/10)+'0';
+      filename[6]= (size%10)+'0';
+    }
+    name = filename; 
+  }
+  else{
+    char filename[] = "Blur0X.bmp";
+    if(size < 10) filename[5]=size+'0';
+    else{
+      filename[4]= (size/10)+'0';
+      filename[5]= (size%10)+'0';
+    }
+    name = filename; 
+  }
+
+  //Guardar la imagen
+  if (BMP_save(img, name) == 0)
+   {
+     printf("Output file invalid!\n");
+     BMP_destroy(img);
+     free(kerSn);
+     free(out_buffer);
+    //  free(buffer);
+  }
+  // Destroy the BMP image
+  BMP_destroy(img);
+  free(kerSn);
+  free(out_buffer);
+  // free(buffer);
+  const double endTime = omp_get_wtime();
+  printf("%s teminado en un tiempo total de (%lf)\n",name, (endTime - startTime));
+}
+
+/*Debugging functions*/
+void printArr(float ** array, int size){
+  for(int i = 0; i < size; i++){
+    for(int j = 0; j< size*3; j++){
+      if((j+1)%3 == 0) printf("%f\t", array[i][j]);
+      else printf("%f,", array[i][j]);
+    }
+    printf("\n");
+  }
+}
+  
 int main(){
-  // BMP_gray(BMP_open("mc.bmp"));
-  BMP_gray(BMP_open("hollow.bmp"));
-  BMP_horFlip(BMP_open("GrayScale.bmp"));
-  BMP_verFlip(BMP_open("GrayScale.bmp"));
+  BMP_blur("GrayScale.bmp",3);
+  BMP_blur("GrayScale.bmp",5);
+  BMP_blur("GrayScale.bmp",7);
+  BMP_blur("GrayScale.bmp",9);
+  BMP_blur("GrayScale.bmp",11);
+  BMP_blur("GrayScale.bmp",13);
+  BMP_blur("GrayScale.bmp",15);
+  BMP_blur("GrayScale.bmp",17);
+  BMP_blur("GrayScale.bmp",19);
+  BMP_blur("GrayScale.bmp",21);
+  BMP_blur("GrayScale.bmp",23);
+  BMP_blur("HorizontalRot.bmp",23);
+  BMP_blur("HorizontalRot.bmp",21);
+  BMP_blur("HorizontalRot.bmp",19);
+  BMP_blur("HorizontalRot.bmp",17);
+  BMP_blur("HorizontalRot.bmp",15);
+  BMP_blur("HorizontalRot.bmp",13);
+  BMP_blur("HorizontalRot.bmp",11);
+  BMP_blur("HorizontalRot.bmp",9);
+  BMP_blur("HorizontalRot.bmp",7);
+  BMP_blur("HorizontalRot.bmp",5);
+  BMP_blur("HorizontalRot.bmp",3);
+  // BMP_gray(BMP_open("opossum.bmp"));
+  // BMP_Image * img = BMP_open("opossum.bmp");
+  // specs(&(img->header));
   return 0;
 }
